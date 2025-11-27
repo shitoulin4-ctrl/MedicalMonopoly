@@ -1,83 +1,100 @@
 const express = require('express');
 const http = require('http');
-const { Server } = require("socket.io");
+const { Server } = require('socket.io');
+const mongoose = require('mongoose'); // 引入 Mongoose
 
-// --- 伺服器初始化 ---
 const app = express();
 const server = http.createServer(app);
-// 允許跨域連線，這是讓前端 Vercel 連線到後端 Render 的關鍵
+
+// 1. MongoDB 連線設定
+const MONGO_URI = process.env.MONGO_URI; 
+
+if (!MONGO_URI) {
+    console.error("錯誤：MONGO_URI 環境變數未設定！無法連線到數據庫。");
+} else {
+    mongoose.connect(MONGO_URI, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+    })
+    .then(() => console.log("MongoDB 連線成功！可以開始儲存題庫與進度。"))
+    .catch(err => console.error("MongoDB 連線失敗：", err));
+}
+
+// 2. 跨域設定 (CORS) - 允許 Vercel 前端連線
 const io = new Server(server, {
     cors: {
-        origin: "*", // 允許所有來源 (用於測試和免費部署)
+        origin: "*", // 允許所有來源連線，確保 Vercel 能連上 Render
         methods: ["GET", "POST"]
     }
-}); 
-
-const PORT = process.env.PORT || 3001; // 設定伺服器運行端口
-
-// --- 遊戲狀態與邏輯 (多人同步的核心) ---
-// 這裡我們暫時只放一個空的遊戲狀態，後面再填入複雜邏輯
-let gameState = {
-    players: {}, // 儲存玩家資訊
-    status: "waiting",
-    board: []
-};
-
-// 處理靜態檔案（如果需要）
-app.get('/', (req, res) => {
-  res.send('Medical Monopoly Server is running!');
 });
 
-// --- Socket.IO 連線處理 ---
+// 3. 遊戲數據模型 (Schema) - 範例：題庫結構
+// 雖然我們還沒使用它，但我們確保數據庫連線時能運行
+const QuestionSchema = new mongoose.Schema({
+    questionText: String,
+    answer: String,
+    category: String,
+    points: Number
+});
+
+// 4. 遊戲邏輯與 Socket.IO (與之前版本相同)
+const PORT = process.env.PORT || 3001; 
+let gameState = { players: {}, turnOrder: [] };
+let playerCounter = 0;
+
 io.on('connection', (socket) => {
-    console.log(`[連線] 一位玩家加入: ${socket.id}`);
+    console.log(`用戶連線: ${socket.id}`);
 
-    // 玩家加入遊戲或創建房間的事件
+    // [A] 玩家加入遊戲
     socket.on('joinGame', (playerName) => {
-        // 簡化：將玩家加入單一的通用房間
-        const playerID = socket.id;
+        if (gameState.players[socket.id]) return; 
 
-        // 初始化玩家資料
-        gameState.players[playerID] = {
+        gameState.players[socket.id] = {
+            id: socket.id,
             name: playerName,
-            position: 0,
             money: 1500,
-            id: playerID
+            position: 0,
+            isTurn: false 
         };
+        gameState.turnOrder.push(socket.id); 
 
-        // 通知所有已連線的客戶端，遊戲狀態更新了
-        io.emit('gameStateUpdate', gameState);
-        console.log(`玩家 ${playerName} 加入遊戲。目前人數: ${Object.keys(gameState.players).length}`);
+        console.log(`玩家加入: ${playerName}, 當前人數: ${gameState.turnOrder.length}`);
+        io.emit('gameStateUpdate', gameState); 
     });
 
-    // 玩家丟骰子的事件 (之後我們會在這裡加入真正的移動邏輯)
+    // [B] 玩家丟骰子
     socket.on('rollDice', () => {
-         // 假設是當前回合的玩家
-         const playerID = socket.id;
-         if (gameState.players[playerID]) {
-            const diceResult = Math.floor(Math.random() * 6) + 1;
+        if (!gameState.players[socket.id]) return; 
+        
+        const diceResult = Math.floor(Math.random() * 6) + 1;
+        
+        // 模擬移動邏輯
+        gameState.players[socket.id].position = (gameState.players[socket.id].position + diceResult) % 20;
+        gameState.players[socket.id].money += diceResult * 10; // 模擬收入
 
-            // 模擬移動和更新狀態
-            gameState.players[playerID].position = (gameState.players[playerID].position + diceResult) % 40; // 假設有40格
-            gameState.players[playerID].money += 10; // 模擬經過起點
-
-            // 廣播更新
-            io.emit('diceRolled', { playerID: playerID, result: diceResult });
-            io.emit('gameStateUpdate', gameState);
-            console.log(`玩家 ${gameState.players[playerID].name} 丟出 ${diceResult}`);
-         }
+        // 廣播給所有玩家
+        io.emit('diceRolled', { playerID: socket.id, result: diceResult });
+        io.emit('gameStateUpdate', gameState);
     });
 
-    // 玩家斷線事件
+    // [C] 玩家斷線
     socket.on('disconnect', () => {
-        console.log(`[斷線] 玩家離開: ${socket.id}`);
-        delete gameState.players[socket.id];
-        // 再次廣播更新狀態
-        io.emit('gameStateUpdate', gameState);
+        if (gameState.players[socket.id]) {
+            console.log(`玩家斷線: ${gameState.players[socket.id].name}`);
+            delete gameState.players[socket.id];
+            gameState.turnOrder = gameState.turnOrder.filter(id => id !== socket.id);
+            io.emit('gameStateUpdate', gameState);
+        }
     });
 });
 
-// 啟動伺服器
+
+// 5. 伺服器啟動
 server.listen(PORT, () => {
-    console.log(`🎉 後端伺服器運行在 http://localhost:${PORT}`);
+    console.log(`Socket.IO 伺服器運行在端口: ${PORT}`);
+});
+
+// 根路由測試
+app.get('/', (req, res) => {
+    res.send('Medical Monopoly Server is running and connecting to MongoDB!');
 });
