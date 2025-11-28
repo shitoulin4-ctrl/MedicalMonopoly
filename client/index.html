@@ -2,9 +2,118 @@
 <html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <title>測試頁面</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>醫學大富翁 (Med Monopoly)</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .player-info { margin-bottom: 5px; border-bottom: 1px dotted #ccc; padding-bottom: 5px; }
+    </style>
 </head>
 <body>
-    <h1>測試成功！如果看到這行字，代表 HTML 結構沒問題。</h1>
+    <h1>醫學大富翁遊戲大廳</h1>
+    <p>伺服器連線狀態: <span id="status" style="font-weight: bold;">連線中...</span></p>
+    <p id="board-status">等待遊戲開始...</p>
+
+    <hr>
+
+    <h2>玩家控制區</h2>
+    <button id="join-button" onclick="joinGame()" disabled>加入遊戲</button>
+    <button id="roll-button" onclick="rollDice()" disabled>丟骰子</button>
+    
+    <p>您是: <span id="player-name-display" style="font-weight: bold;">(未加入)</span></p>
+    <p>您的資產: <span id="player-money" style="font-weight: bold;">$0 (位置: 0)</span></p>
+    
+    <hr>
+    
+    <h2>所有玩家列表</h2>
+    <div id="player-list">
+        </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script>
+        // ******************************************************
+        // 替換這裡的 URL 為您上次猜測的或類似的網址
+        // ******************************************************
+        const SERVER_URL = 'https://medical-monopoly-server-test-1234.onrender.com'; // 請替換成您在上次推送中使用的網址！
+
+        let socket;
+        let playerName = '';
+        let gameState; // 必須在 connectServer 外定義，供 diceRolled 存取
+
+        // 1. 連線到後端伺服器
+        function connectServer() {
+            try {
+                socket = io(SERVER_URL);
+                document.getElementById('status').textContent = '已連線 (等待加入)';
+
+                socket.on('connect', () => {
+                    document.getElementById('status').textContent = '連線成功';
+                    document.getElementById('join-button').disabled = false;
+                });
+
+                socket.on('disconnect', () => {
+                    document.getElementById('status').textContent = '已斷線';
+                    document.getElementById('roll-button').disabled = true;
+                });
+
+                // 接收伺服器更新的狀態
+                socket.on('gameStateUpdate', (newState) => {
+                    gameState = newState; // 更新全域 gameState
+                    updateGameView();
+                });
+
+                // 接收骰子結果
+                socket.on('diceRolled', (data) => {
+                    // 使用更新過的全域 gameState
+                    const mover = gameState.players[data.playerID] ? gameState.players[data.playerID].name : '一位玩家';
+                    document.getElementById('board-status').textContent = 
+                        `${mover} 丟出了 ${data.result} 點，目前位於第 ${gameState.players[data.playerID].position} 格！`;
+                });
+                
+            } catch (e) {
+                // *** 這裡會顯示嘗試連線的網址！這是我們需要的線索！ ***
+                document.getElementById('status').textContent = '連線失敗，請檢查網址或伺服器是否運行。';
+                console.error('Socket連線錯誤:', e.message); // 打印出錯誤詳細資訊
+            }
+        }
+
+        // 2. 加入遊戲
+        function joinGame() {
+            playerName = prompt("請輸入您的醫學生姓名:");
+            if (playerName) {
+                socket.emit('joinGame', playerName);
+                document.getElementById('player-name-display').textContent = playerName;
+                document.getElementById('join-button').disabled = true;
+                document.getElementById('roll-button').disabled = false;
+            }
+        }
+
+        // 3. 丟骰子
+        function rollDice() {
+            socket.emit('rollDice');
+        }
+
+        // 4. 更新遊戲畫面
+        function updateGameView() {
+            const playerListDiv = document.getElementById('player-list');
+            playerListDiv.innerHTML = '';
+
+            const selfData = Object.values(gameState.players).find(p => p.id === socket.id);
+            if (selfData) {
+                document.getElementById('player-money').textContent = `$${selfData.money} (位置: ${selfData.position})`;
+            }
+
+            Object.values(gameState.players).forEach(player => {
+                const info = document.createElement('div');
+                info.className = 'player-info';
+                info.textContent = `[${player.name}] - $${player.money} - 位置: ${player.position} ${player.id === socket.id ? '(您)' : ''}`;
+                playerListDiv.appendChild(info);
+            });
+        }
+
+        // 啟動連線
+        connectServer();
+    </script>
 </body>
 </html>
