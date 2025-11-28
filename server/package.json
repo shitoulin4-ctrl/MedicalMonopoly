@@ -1,15 +1,13 @@
 {
-  "name": "server",
+  "name": "medical-monopoly-server",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend for Medical Monopoly using Socket.IO",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
-  "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "express": "^4.17.1",
     "socket.io": "^4.0.0",
