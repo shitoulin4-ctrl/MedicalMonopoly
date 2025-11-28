@@ -12,20 +12,12 @@
     </style>
 </head>
 <body>
-    <div id="game-container">
-        <h1>醫學大富翁：多人連線測試</h1>
-        <p>伺服器連線狀態: <span id="status">連線中...</span></p>
-        <p>玩家名稱: <span id="player-name-display">N/A</span></p>
-        <p>金錢 (分數): <span id="player-money">N/A</span></p>
-
-        <button id="join-button" onclick="joinGame()">加入遊戲</button>
-        <button id="roll-button" onclick="rollDice()" disabled>丟骰子</button>
-
-        <div id="board-status" class="board-status">等待遊戲開始...</div>
-
-        <hr>
-        <h3>所有連線玩家</h3>
-        <div id="player-list"></div>
+    <div id="question-area" style="display: none; border: 1px solid #ccc; padding: 15px; margin-top: 20px;">
+    <h3>醫學問答挑戰！</h3>
+    <p id="question-text"></p>
+    <div id="options-container">
+        </div>
+    <button id="submit-answer-btn" disabled>提交答案</button>
     </div>
 
     <script>
@@ -59,6 +51,80 @@
                     updateGameView(gameState);
                 });
 
+let currentQuestionID = null;
+let selectedAnswer = null;
+const questionArea = document.getElementById('question-area');
+const questionText = document.getElementById('question-text');
+const optionsContainer = document.getElementById('options-container');
+const submitButton = document.getElementById('submit-answer-btn');
+
+// (新增) 處理伺服器發送的題目
+socket.on('startQuestion', (data) => {
+    currentQuestionID = data.questionID; // 儲存題目 ID
+    selectedAnswer = null; // 重置選取的答案
+
+    questionText.textContent = `[分數: $${data.points}] ${data.questionText}`;
+    optionsContainer.innerHTML = ''; // 清空舊選項
+
+    // 動態生成選項按鈕
+    data.options.forEach(optionText => {
+        const button = document.createElement('button');
+        button.textContent = optionText;
+        button.className = 'question-option';
+        button.style.margin = '5px';
+        button.style.padding = '8px';
+        button.style.cursor = 'pointer';
+
+        button.onclick = () => {
+            // 處理選取狀態
+            document.querySelectorAll('.question-option').forEach(btn => {
+                btn.style.backgroundColor = '';
+            });
+            button.style.backgroundColor = 'lightblue';
+            selectedAnswer = optionText;
+            submitButton.disabled = false; // 啟用提交按鈕
+        };
+        optionsContainer.appendChild(button);
+    });
+
+    questionArea.style.display = 'block'; // 顯示題目區塊
+    submitButton.disabled = true;
+});
+
+// (新增) 處理提交答案的按鈕點擊
+submitButton.onclick = () => {
+    if (currentQuestionID && selectedAnswer) {
+        // 向伺服器發送答案
+        socket.emit('submitAnswer', {
+            questionID: currentQuestionID,
+            submittedAnswer: selectedAnswer
+        });
+
+        // 提交後鎖定並隱藏題目區塊
+        submitButton.disabled = true;
+        questionArea.style.display = 'none';
+    }
+};
+
+// (新增) 處理伺服器返回的答案結果
+socket.on('answerResult', (data) => {
+    const resultDiv = document.createElement('div');
+    resultDiv.textContent = data.message;
+    resultDiv.style.fontWeight = 'bold';
+    resultDiv.style.padding = '10px';
+    resultDiv.style.border = data.success ? '2px solid green' : '2px solid red';
+    resultDiv.style.marginTop = '10px';
+    
+    // 臨時顯示結果
+    document.body.appendChild(resultDiv);
+    
+    // 幾秒後移除結果提示
+    setTimeout(() => {
+        document.body.removeChild(resultDiv);
+    }, 5000);
+    
+    // 遊戲狀態會在 gameStateUpdate 中更新，這裡不需要額外處理
+});
                 // 接收骰子結果
                 socket.on('diceRolled', (data) => {
                      const mover = gameState.players[data.playerID] ? gameState.players[data.playerID].name : '一位玩家';
