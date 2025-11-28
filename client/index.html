@@ -22,184 +22,88 @@
 
     <script>
     // ******************************************************
-    // 替換這裡的 URL 為您 Render 伺服器的公開網址
-    // ******************************************************
-    const SERVER_URL = 'https://medical-monopoly-server-xxxx.onrender.com'; // 請確保這裡填寫您的正確網址！
+// 請替換這裡的 URL 為您 Render 伺服器的公開網址
+// ******************************************************
+// 請貼上您猜測或認為最像的網址，例如：
+const SERVER_URL = 'https://medical-monopoly-server-test-1234.onrender.com'; 
 
-    let socket;
-    let playerName = '';
+let socket;
+let playerName = '';
 
-    // === 新增：問答相關的全域變數 ===
-    let currentQuestionID = null;
-    let selectedAnswer = null;
-    const questionArea = document.getElementById('question-area');
-    const questionText = document.getElementById('question-text');
-    const optionsContainer = document.getElementById('options-container');
-    const submitButton = document.getElementById('submit-answer-btn');
-    // ===============================
+// 1. 連線到後端伺服器
+function connectServer() {
+    try {
+        socket = io(SERVER_URL);
+        document.getElementById('status').textContent = '已連線 (等待加入)';
 
-    // 1. 連線到後端伺服器
-    function connectServer() {
-        try {
-            socket = io(SERVER_URL);
-            document.getElementById('status').textContent = '已連線 (等待加入)';
-
-            // =======================================================
-            // A. 連線/斷線/狀態更新事件 (舊有事件)
-            // =======================================================
-            socket.on('connect', () => {
-                console.log('連線成功，Socket ID:', socket.id);
-                document.getElementById('status').textContent = '連線成功';
-                document.getElementById('join-button').disabled = false;
-            });
-
-            socket.on('disconnect', () => {
-                document.getElementById('status').textContent = '已斷線';
-                document.getElementById('roll-button').disabled = true;
-            });
-
-            // 接收伺服器更新的狀態
-            socket.on('gameStateUpdate', (gameState) => {
-                updateGameView(gameState);
-            });
-
-            // 接收骰子結果
-            socket.on('diceRolled', (data) => {
-                const mover = gameState.players[data.playerID] ? gameState.players[data.playerID].name : '一位玩家';
-                document.getElementById('board-status').textContent = 
-                    `${mover} 丟出了 ${data.result} 點，目前位於第 ${gameState.players[data.playerID].position} 格！`;
-            });
-
-            // =======================================================
-            // B. 問答事件 (新增事件)
-            // =======================================================
-
-            // 處理伺服器發送的題目
-            socket.on('startQuestion', (data) => {
-                currentQuestionID = data.questionID; // 儲存題目 ID
-                selectedAnswer = null; // 重置選取的答案
-
-                questionText.textContent = `[分數: $${data.points}] ${data.questionText}`;
-                optionsContainer.innerHTML = ''; // 清空舊選項
-
-                // 動態生成選項按鈕
-                data.options.forEach(optionText => {
-                    const button = document.createElement('button');
-                    button.textContent = optionText;
-                    button.className = 'question-option';
-                    button.style.margin = '5px';
-                    button.style.padding = '8px';
-                    button.style.cursor = 'pointer';
-
-                    button.onclick = () => {
-                        // 處理選取狀態
-                        document.querySelectorAll('.question-option').forEach(btn => {
-                            btn.style.backgroundColor = '';
-                        });
-                        button.style.backgroundColor = 'lightblue';
-                        selectedAnswer = optionText;
-                        submitButton.disabled = false; // 啟用提交按鈕
-                    };
-                    optionsContainer.appendChild(button);
-                });
-
-                questionArea.style.display = 'block'; // 顯示題目區塊
-                submitButton.disabled = true;
-            });
-
-            // 處理伺服器返回的答案結果
-            socket.on('answerResult', (data) => {
-                const resultDiv = document.createElement('div');
-                resultDiv.textContent = data.message;
-                resultDiv.style.fontWeight = 'bold';
-                resultDiv.style.padding = '10px';
-                resultDiv.style.border = data.success ? '2px solid green' : '2px solid red';
-                resultDiv.style.marginTop = '10px';
-                
-                // 臨時顯示結果
-                document.body.appendChild(resultDiv);
-                
-                // 幾秒後移除結果提示
-                setTimeout(() => {
-                    document.body.removeChild(resultDiv);
-                }, 5000);
-            });
-
-            // =======================================================
-            // C. 提交按鈕邏輯 (必須放在 connectServer 外面，或在 document.onload)
-            // 由於 submitButton 是全域變數，我們將它的 onclick 放在外面更清晰
-            // =======================================================
-
-
-        } catch (e) {
-            document.getElementById('status').textContent = '連線失敗，請檢查網址或伺服器是否運行。';
-            console.error('Socket連線錯誤:', e);
-        }
-    } // <-- connectServer() 函數結束
-
-    // 2. 加入遊戲
-    function joinGame() {
-        playerName = prompt("請輸入您的醫學生姓名:");
-        if (playerName) {
-            socket.emit('joinGame', playerName);
-            document.getElementById('player-name-display').textContent = playerName;
-            document.getElementById('join-button').disabled = true;
-            document.getElementById('roll-button').disabled = false;
-        }
-    }
-
-    // 3. 丟骰子
-    function rollDice() {
-        socket.emit('rollDice');
-    }
-
-    // 4. 更新遊戲畫面
-    let gameState;
-    function updateGameView(newState) {
-        gameState = newState;
-        const playerListDiv = document.getElementById('player-list');
-        playerListDiv.innerHTML = '';
-
-        // 找出自己的資料來更新金錢
-        const selfData = Object.values(gameState.players).find(p => p.id === socket.id);
-        if (selfData) {
-            document.getElementById('player-money').textContent = `$${selfData.money} (位置: ${selfData.position})`;
-        }
-
-        // 列出所有玩家
-        Object.values(gameState.players).forEach(player => {
-            const info = document.createElement('div');
-            info.className = 'player-info';
-            info.textContent = `[${player.name}] - $${player.money} - 位置: ${player.position} ${player.id === socket.id ? '(您)' : ''}`;
-            playerListDiv.appendChild(info);
+        socket.on('connect', () => {
+            document.getElementById('status').textContent = '連線成功';
+            document.getElementById('join-button').disabled = false;
         });
+
+        socket.on('disconnect', () => {
+            document.getElementById('status').textContent = '已斷線';
+            document.getElementById('roll-button').disabled = true;
+        });
+
+        // 接收伺服器更新的狀態
+        socket.on('gameStateUpdate', (gameState) => {
+            updateGameView(gameState);
+        });
+
+        // 接收骰子結果
+        socket.on('diceRolled', (data) => {
+            // 注意：這裡需要 gameState 變數來存取玩家名稱
+            const mover = gameState.players[data.playerID] ? gameState.players[data.playerID].name : '一位玩家';
+            document.getElementById('board-status').textContent = 
+                `${mover} 丟出了 ${data.result} 點，目前位於第 ${gameState.players[data.playerID].position} 格！`;
+        });
+        
+    } catch (e) {
+        document.getElementById('status').textContent = '連線失敗，請檢查網址或伺服器是否運行。';
+        // *** 這裡會顯示嘗試連線的網址！ ***
+        console.error('Socket連線錯誤:', e);
+    }
+}
+
+// 2. 加入遊戲
+function joinGame() {
+    playerName = prompt("請輸入您的醫學生姓名:");
+    if (playerName) {
+        socket.emit('joinGame', playerName);
+        document.getElementById('player-name-display').textContent = playerName;
+        document.getElementById('join-button').disabled = true;
+        document.getElementById('roll-button').disabled = false;
+    }
+}
+
+// 3. 丟骰子
+function rollDice() {
+    socket.emit('rollDice');
+}
+
+// 4. 更新遊戲畫面
+let gameState;
+function updateGameView(newState) {
+    gameState = newState;
+    const playerListDiv = document.getElementById('player-list');
+    playerListDiv.innerHTML = '';
+
+    const selfData = Object.values(gameState.players).find(p => p.id === socket.id);
+    if (selfData) {
+        document.getElementById('player-money').textContent = `$${selfData.money} (位置: ${selfData.position})`;
     }
 
-    // === 提交按鈕的事件必須在 DOM 元素存在後定義 ===
-    // 由於我們不能保證腳本執行時 DOM 元素已完全載入
-    // 最安全的方法是將 submission 邏輯放在連線成功後或 document.onload
+    Object.values(gameState.players).forEach(player => {
+        const info = document.createElement('div');
+        info.className = 'player-info';
+        info.textContent = `[${player.name}] - $${player.money} - 位置: ${player.position} ${player.id === socket.id ? '(您)' : ''}`;
+        playerListDiv.appendChild(info);
+    });
+}
 
-    // 處理提交答案的按鈕點擊
-    if (submitButton) {
-        submitButton.onclick = () => {
-            if (currentQuestionID && selectedAnswer) {
-                // 向伺服器發送答案
-                socket.emit('submitAnswer', {
-                    questionID: currentQuestionID,
-                    submittedAnswer: selectedAnswer
-                });
-
-                // 提交後鎖定並隱藏題目區塊
-                submitButton.disabled = true;
-                questionArea.style.display = 'none';
-            }
-        };
-    } else {
-        console.error("錯誤：無法找到提交按鈕 (submit-answer-btn)！請檢查 HTML 結構。");
-    }
-
-    // 啟動連線
-    connectServer();
+// 啟動連線
+connectServer();
 
 </script>
 </body>
